@@ -2,15 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const mysql   = require('mysql2/promise');
 const cors    = require('cors');
- 
+
 const app  = express();
 const PORT = process.env.PORT || 8080;
- 
+
 app.use(cors({ origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'], allowedHeaders: ['*'] }));
 app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
- 
+
 // ── BANCO ─────────────────────────────────────────────────────
 let pool;
 async function getDB() {
@@ -38,10 +38,10 @@ async function getDB() {
   }
   return pool;
 }
- 
+
 const genId = () => 'sa_' + Date.now() + '_' + Math.random().toString(36).substr(2,5);
 const safeJSON = s => { try { return typeof s==='string'?JSON.parse(s):(s||[]); } catch { return []; } };
- 
+
 // ── INIT DB ───────────────────────────────────────────────────
 async function initDB() {
   const db = await getDB();
@@ -85,11 +85,11 @@ async function initDB() {
   }
   console.log('DB pronto!');
 }
- 
+
 // ── ROTAS ─────────────────────────────────────────────────────
 app.get('/', (req,res) => res.json({status:'ok',app:'Solar Artes API',version:'2.0'}));
 app.get('/health', (req,res) => res.json({status:'ok'}));
- 
+
 app.get('/api/sync', async (req,res) => {
   try {
     const db = await getDB();
@@ -106,7 +106,7 @@ app.get('/api/sync', async (req,res) => {
     });
   } catch(e) { console.error(e); res.status(500).json({error:e.message}); }
 });
- 
+
 // Produtos
 app.post('/api/produtos', async (req,res) => {
   try {
@@ -122,7 +122,7 @@ app.delete('/api/produtos/:id', async (req,res) => {
   await (await getDB()).execute('DELETE FROM produtos WHERE id=?',[req.params.id]);
   res.json({ok:true});
 });
- 
+
 // Clientes
 app.post('/api/clientes', async (req,res) => {
   try {
@@ -138,7 +138,7 @@ app.delete('/api/clientes/:id', async (req,res) => {
   await (await getDB()).execute('DELETE FROM clientes WHERE id=?',[req.params.id]);
   res.json({ok:true});
 });
- 
+
 // Vendas
 app.post('/api/vendas', async (req,res) => {
   try {
@@ -172,7 +172,7 @@ app.delete('/api/vendas/:id', async (req,res) => {
   await db.execute('DELETE FROM agenda WHERE venda_id=?',[req.params.id]);
   res.json({ok:true});
 });
- 
+
 // Agenda
 app.post('/api/agenda', async (req,res) => {
   try {
@@ -192,7 +192,7 @@ app.delete('/api/agenda/:id', async (req,res) => {
   await (await getDB()).execute('DELETE FROM agenda WHERE id=?',[req.params.id]);
   res.json({ok:true});
 });
- 
+
 // ── START ─────────────────────────────────────────────────────
 app.listen(PORT, async () => {
   console.log(`Solar Artes API rodando na porta ${PORT}`);
