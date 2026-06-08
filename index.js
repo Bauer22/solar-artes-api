@@ -1,11 +1,9 @@
 {
   "name": "solar-artes-api",
   "version": "1.0.0",
-  "description": "Solar Artes API - Backend MySQL",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
