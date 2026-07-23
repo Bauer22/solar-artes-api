@@ -3,6 +3,8 @@ const express = require('express');
 const mysql   = require('mysql2/promise');
 const cors    = require('cors');
 const crypto  = require('crypto');
+const path    = require('path');
+const fs      = require('fs');
 
 const app  = express();
 const PORT = process.env.PORT || 8080;
@@ -121,7 +123,12 @@ async function initDB() {
 }
 
 // ── ROTAS ─────────────────────────────────────────────────────
-app.get('/', (req,res) => res.json({status:'ok',app:'Solar Artes API',version:'2.0'}));
+// Servir o site (index.html no mesmo repositório)
+app.get('/', (req, res) => {
+  const f = path.join(__dirname, 'index.html');
+  if (fs.existsSync(f)) return res.sendFile(f);
+  res.json({ status: 'ok', app: 'Solar Artes API' });
+});
 app.get('/health', (req,res) => res.json({status:'ok'}));
 
 app.get('/api/sync', async (req,res) => {
