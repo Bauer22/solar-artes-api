@@ -87,6 +87,12 @@ async function initDB() {
     venda_id VARCHAR(50), concluida TINYINT(1) DEFAULT 0,
     criado DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+  for (const col of ["descricao TEXT", "emoji VARCHAR(10)", "tag VARCHAR(50)", "foto TEXT"]) {
+    try { await db.execute('ALTER TABLE produtos ADD COLUMN ' + col); } catch(e) {}
+  }
+  await db.execute(`CREATE TABLE IF NOT EXISTS config (
+    chave VARCHAR(100) PRIMARY KEY, valor TEXT
+  )`);
   await db.execute(`CREATE TABLE IF NOT EXISTS usuarios (
     id VARCHAR(50) PRIMARY KEY, nome VARCHAR(200) NOT NULL,
     usuario VARCHAR(100) NOT NULL UNIQUE, senha_hash VARCHAR(100) NOT NULL,
@@ -198,10 +204,29 @@ app.post('/api/produtos', async (req,res) => {
   try {
     const d=req.body, id=d.id||genId();
     await (await getDB()).execute(
-      'INSERT INTO produtos (id,nome,custo,venda,estoque,estoque_min) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE nome=?,custo=?,venda=?,estoque=?,estoque_min=?',
-      [id,d.nome,d.custo||0,d.venda||0,d.estoque||10,d.estoqueMin||3,d.nome,d.custo||0,d.venda||0,d.estoque||10,d.estoqueMin||3]
+      'INSERT INTO produtos (id,nome,custo,venda,estoque,estoque_min,descricao,emoji,tag,foto) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE nome=?,custo=?,venda=?,estoque=?,estoque_min=?,descricao=?,emoji=?,tag=?,foto=?',
+      [id,d.nome,d.custo||0,d.venda||0,d.estoque??10,d.estoqueMin||3,d.descricao||'',d.emoji||'🌿',d.tag||null,d.foto||null,
+       d.nome,d.custo||0,d.venda||0,d.estoque??10,d.estoqueMin||3,d.descricao||'',d.emoji||'🌿',d.tag||null,d.foto||null]
     );
     res.json({ok:true,id});
+  } catch(e){res.status(500).json({error:e.message});}
+});
+
+// Config do site (público lê, admin edita)
+app.get('/api/config', async (req,res) => {
+  try {
+    const [rows] = await (await getDB()).execute('SELECT * FROM config');
+    const o = {}; rows.forEach(r => o[r.chave] = r.valor);
+    res.json(o);
+  } catch(e){res.status(500).json({error:e.message});}
+});
+app.put('/api/config', auth, async (req,res) => {
+  try {
+    const db = await getDB();
+    for (const [k,v] of Object.entries(req.body||{})) {
+      await db.execute('INSERT INTO config (chave,valor) VALUES (?,?) ON DUPLICATE KEY UPDATE valor=?',[k,String(v),String(v)]);
+    }
+    res.json({ok:true});
   } catch(e){res.status(500).json({error:e.message});}
 });
 app.delete('/api/produtos/:id', async (req,res) => {
