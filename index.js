@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const mysql   = require('mysql2/promise');
 const cors    = require('cors');
+const crypto  = require('crypto');
 
 const app  = express();
 const PORT = process.env.PORT || 8080;
@@ -41,6 +42,21 @@ async function getDB() {
 
 const genId = () => 'sa_' + Date.now() + '_' + Math.random().toString(36).substr(2,5);
 const safeJSON = s => { try { return typeof s==='string'?JSON.parse(s):(s||[]); } catch { return []; } };
+const hashSenha = s => crypto.createHash('sha256').update(String(s) + '::solar_artes_salt_2026').digest('hex');
+const TOKENS = new Map();
+
+function auth(req, res, next) {
+  const h = req.headers.authorization || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  const user = token && TOKENS.get(token);
+  if (!user) return res.status(401).json({ error: 'nao_autenticado' });
+  req.user = user;
+  next();
+}
+function superOnly(req, res, next) {
+  if (req.user.role !== 'superadmin') return res.status(403).json({ error: 'apenas_superadmin' });
+  next();
+}
 
 // ── INIT DB ───────────────────────────────────────────────────
 async function initDB() {
@@ -71,6 +87,18 @@ async function initDB() {
     venda_id VARCHAR(50), concluida TINYINT(1) DEFAULT 0,
     criado DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
+  await db.execute(`CREATE TABLE IF NOT EXISTS usuarios (
+    id VARCHAR(50) PRIMARY KEY, nome VARCHAR(200) NOT NULL,
+    usuario VARCHAR(100) NOT NULL UNIQUE, senha_hash VARCHAR(100) NOT NULL,
+    role VARCHAR(20) DEFAULT 'vendedor', ativo TINYINT(1) DEFAULT 1,
+    criado DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  const [urows] = await db.execute('SELECT COUNT(*) as c FROM usuarios');
+  if (urows[0].c === 0) {
+    await db.execute('INSERT INTO usuarios (id,nome,usuario,senha_hash,role) VALUES (?,?,?,?,?)',
+      [genId(),'Super Admin','admin',hashSenha('SolarArtes2026'),'superadmin']);
+    console.log('Superadmin criado: admin');
+  }
   const [rows] = await db.execute('SELECT COUNT(*) as c FROM produtos');
   if (rows[0].c === 0) {
     const prods = [
@@ -105,6 +133,64 @@ app.get('/api/sync', async (req,res) => {
       ts: Date.now()
     });
   } catch(e) { console.error(e); res.status(500).json({error:e.message}); }
+});
+
+// ── AUTENTICAÇÃO ──────────────────────────────────────────────
+app.post('/api/login', async (req, res) => {
+  try {
+    const { usuario, senha } = req.body || {};
+    if (!usuario || !senha) return res.status(400).json({ error: 'dados_incompletos' });
+    const db = await getDB();
+    const [rows] = await db.execute('SELECT * FROM usuarios WHERE usuario=? AND ativo=1', [String(usuario).toLowerCase().trim()]);
+    if (!rows.length || rows[0].senha_hash !== hashSenha(senha)) {
+      return res.status(401).json({ error: 'usuario_ou_senha_invalidos' });
+    }
+    const token = crypto.randomBytes(24).toString('hex');
+    TOKENS.set(token, { id: rows[0].id, usuario: rows[0].usuario, nome: rows[0].nome, role: rows[0].role });
+    res.json({ ok: true, token, nome: rows[0].nome, usuario: rows[0].usuario, role: rows[0].role });
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/me', auth, (req, res) => res.json({ ok: true, ...req.user }));
+
+app.get('/api/usuarios', auth, superOnly, async (req, res) => {
+  const [rows] = await (await getDB()).execute('SELECT id,nome,usuario,role,ativo,criado FROM usuarios ORDER BY nome');
+  res.json(rows.map(u => ({ ...u, ativo: !!u.ativo })));
+});
+
+app.post('/api/usuarios', auth, superOnly, async (req, res) => {
+  try {
+    const d = req.body || {};
+    if (!d.nome || !d.usuario || !d.senha) return res.status(400).json({ error: 'dados_incompletos' });
+    const db = await getDB();
+    const id = genId();
+    await db.execute(
+      'INSERT INTO usuarios (id,nome,usuario,senha_hash,role) VALUES (?,?,?,?,?)',
+      [id, d.nome, String(d.usuario).toLowerCase().trim(), hashSenha(d.senha), d.role === 'superadmin' ? 'superadmin' : 'vendedor']
+    );
+    res.json({ ok: true, id });
+  } catch (e) {
+    if (String(e.message).includes('Duplicate')) return res.status(409).json({ error: 'usuario_ja_existe' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/usuarios/:id/senha', auth, async (req, res) => {
+  try {
+    const { senha } = req.body || {};
+    if (!senha) return res.status(400).json({ error: 'senha_obrigatoria' });
+    if (req.user.role !== 'superadmin' && req.user.id !== req.params.id) {
+      return res.status(403).json({ error: 'sem_permissao' });
+    }
+    await (await getDB()).execute('UPDATE usuarios SET senha_hash=? WHERE id=?', [hashSenha(senha), req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/usuarios/:id', auth, superOnly, async (req, res) => {
+  if (req.user.id === req.params.id) return res.status(400).json({ error: 'nao_pode_excluir_a_si_mesmo' });
+  await (await getDB()).execute('UPDATE usuarios SET ativo=0 WHERE id=?', [req.params.id]);
+  res.json({ ok: true });
 });
 
 // Produtos
